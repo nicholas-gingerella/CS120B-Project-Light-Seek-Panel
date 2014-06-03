@@ -24,7 +24,7 @@ unsigned short lightDiff;
 unsigned char rotateLeft;	//1=rotate left, 0=no rotate
 unsigned char rotateRight; //1=rotate right, 0=no rotate
 unsigned char systemOff;		//1=off, 0=On
-unsigned char DetectedHuman = 0; //input to main system and output of detect light (OUTPUT LED: B0, SENSOR INPUT: B1)
+unsigned char DetectedHuman; //input to main system and output of detect light (OUTPUT LED: B0, SENSOR INPUT: B1)
 unsigned char pirSensor;
 unsigned short LightSeek_Period = 1;
 
@@ -307,7 +307,7 @@ void ServoControl_TickFct(){
 }
 //##################### SERVO CONTROL SM ############################
 
-/*
+
 //##################### HUMAN DETECTOR SM ############################
 //shared variables
 //unsigned char DetectedHuman; //input to main system and output of detect light (OUTPUT LED: B0, SENSOR INPUT: B1)
@@ -342,12 +342,10 @@ void HumanDetect_TickFct(){
 			}
 			break;
 		case HumanDetected:
-			if(detectCnt < detectMax){
-				detectCnt++;
+			if(pirSensor){
 				HumanDetect_State = HumanDetected;
 			}
 			else {
-				detectCnt = 0;
 				HumanDetect_State = HumanNotDetected;
 			}
 			break;
@@ -362,30 +360,22 @@ void HumanDetect_TickFct(){
 	switch(HumanDetect_State){
 		case InitDetection:
 			DetectedHuman = 0;
-			//PORTB = SetBit(PORTB,0,0);
-			LCD_ClearScreen();
-			LCD_DisplayString(1,"InitDetect");
 			break;
 		case HumanNotDetected:
 			DetectedHuman = 0;
-			//PORTB = SetBit(PORTB,0,0);
-			LCD_ClearScreen();
-			LCD_DisplayString(1,"Not Detect");
 			break;
 		case HumanDetected:
 			DetectedHuman = 1;
-			//PORTB = SetBit(PORTB,0,1);
-			LCD_ClearScreen();
-			LCD_DisplayString(1,"Detect");
 			break;
 		default:
-			//DetectedHuman = 0;
-			//PORTB = SetBit(PORTB,0,0);
+			DetectedHuman = 0;
 			break;
 	}//actions
+	
+	PORTB = SetBit(PORTB,0,DetectedHuman);
 }
 //##################### HUMAN DETECTOR SM ############################
-*/
+
 
 //##################### LCD DISPLAY SM ############################
 enum LcdDisplay_States {LcdInit, DisplayLeft, DisplayRight} LcdDisplay_State;
@@ -529,17 +519,20 @@ int main(void)
 	
 	//Init SM states
 	LcdDisplay_State = LcdInit;
-	//HumanDetect_State = InitDetection;
+	HumanDetect_State = InitDetection;
 	LightSeek_State = LightSeekInit;
 	ServoControl_State = ServoInit;
 	
 	//main loop
 	while(1)
 	{
-		pirSensor = GetBit(~PINB,1); //get reading from pir sensor
+		pirSensor = GetBit(PINB,1); //get reading from pir sensor
+		LCD_Cursor(20);
+		LCD_WriteData(pirSensor + '0');
+		
 		
 		LcdDisplay_TickFct();
-		//HumanDetect_TickFct();
+		HumanDetect_TickFct();
 		LightSeek_TickFct();
 		ServoControl_TickFct();
 		while(!TimerFlag);
