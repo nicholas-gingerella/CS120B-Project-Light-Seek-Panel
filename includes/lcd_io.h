@@ -70,6 +70,29 @@ void LCD_Cursor(unsigned char column) {
    }
 }
 
+
+//Input:
+// location: location where you want to store
+// 0,1,2,....7
+// ptr: Pointer to pattern data
+//
+//Usage:
+// pattern[8]={0x04,0x0E,0x0E,0x0E,0x1F,0x00,0x04,0x00};
+// LCD_build(1,pattern);
+//
+//LCD Ports are same as discussed in previous sections
+
+void LCD_build(unsigned char location, unsigned char *ptr){
+	unsigned char i;
+	if(location<8){
+		LCD_WriteCommand(0x40+(location*8));
+		for(i=0;i<8;i++)
+		LCD_WriteData(ptr[ i ]);
+	}
+	
+}
+
+
 void delay_ms(int miliSec) //for 8 Mhz crystal
 {
 	int i,j;

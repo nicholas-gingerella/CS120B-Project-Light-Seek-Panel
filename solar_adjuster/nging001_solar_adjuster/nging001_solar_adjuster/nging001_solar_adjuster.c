@@ -18,14 +18,19 @@ unsigned short absDifference(unsigned short x, unsigned short y){
 }
 
 
-//#################### (MAIN) LIGHT SEEK SM #########################
 //shared variables
 unsigned short lightDiff;
 unsigned char rotateLeft;	//1=rotate left, 0=no rotate
 unsigned char rotateRight; //1=rotate right, 0=no rotate
 unsigned char systemOff;		//1=off, 0=On
 unsigned char DetectedHuman; //input to main system and output of detect light (OUTPUT LED: B0, SENSOR INPUT: B1)
-unsigned char pirSensor;
+unsigned char pirSensor;	//passive infrared sensor input
+unsigned char servoAngle;	//current servo angle of the system
+char* currentActionMsg;		//display message for current light detector action
+
+
+
+//#################### (MAIN) LIGHT SEEK SM #########################
 unsigned short LightSeek_Period = 1;
 
 enum LightSeek_States {LightSeekInit, Off, PowerOn, ShutDown, On, FilterRotate, RotateLeft, RotateRight} LightSeek_State;
@@ -37,9 +42,9 @@ void LightSeek_TickFct(){
 	const unsigned char lightDiffThresh = 20;	// the difference needed to init seeking logic
 	const unsigned char systemOnThresh = 100;	// the minimum light reading needed for system power
 	
-	const unsigned char filterMax = 10;		// 1s = 1000ms -> 1000/period -> 1000/50 = 20
-	const unsigned char shutdownMax = 50;	// 10s = 10000ms -> 10000/period -> 10000/50 = 200
-	const unsigned char powerOnMax = 50;	// 10s = 10000ms -> 10000/period -> 10000/50 = 200
+	const unsigned char filterMax = 40;		// 2s @50ms
+	const unsigned char shutdownMax = 100;	// 5s @50ms
+	const unsigned char powerOnMax = 100;	// 5s @50ms
 	
 	//transitions
 	switch(LightSeek_State){
@@ -148,6 +153,7 @@ void LightSeek_TickFct(){
 			servoAngle = 90;
 			break;
 		case Off:
+			currentActionMsg = "Sys Off         ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateLeft = 0;
@@ -157,6 +163,7 @@ void LightSeek_TickFct(){
 			servoAngle = 90;
 			break;
 		case PowerOn:
+			currentActionMsg = "Power On         ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateLeft = 0;
@@ -165,6 +172,7 @@ void LightSeek_TickFct(){
 			lightMax = maxValue(lightL, lightR);
 			break;
 		case On:
+			currentActionMsg = "Sys On          ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateLeft = 0;
@@ -183,6 +191,7 @@ void LightSeek_TickFct(){
 			lightDiff = absDifference(lightL,lightR);
 			break;
 		case RotateRight:
+			currentActionMsg = "Searching         ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateRight = 1;
@@ -191,6 +200,7 @@ void LightSeek_TickFct(){
 			lightDiff = absDifference(lightL,lightR);
 			break;
 		case RotateLeft:
+			currentActionMsg = "Searching          ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateRight = 0;
@@ -199,6 +209,7 @@ void LightSeek_TickFct(){
 			lightDiff = absDifference(lightL,lightR);
 			break;
 		case ShutDown:
+			currentActionMsg = "Shut Off          ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateLeft = 0;
@@ -223,9 +234,6 @@ void LightSeek_TickFct(){
 
 
 //##################### SERVO CONTROL SM ############################
-//shared variables
-unsigned char servoAngle;	//current servo angle of the system
-
 enum ServoControl_States {ServoInit, ServoWait, ServoDefaultPos, ServoRotateLeft, ServoRotateRight} ServoControl_State;
 void ServoControl_TickFct(){
 	
@@ -276,6 +284,7 @@ void ServoControl_TickFct(){
 			break;
 	}
 	
+	//actions
 	switch(ServoControl_State){
 		case ServoInit:
 			servoAngle = 90;
@@ -288,7 +297,14 @@ void ServoControl_TickFct(){
 			Servo_SetAngle(servoAngle);
 			break;
 		case ServoRotateLeft:
-			Servo_SetAngle(servoAngle++);
+			if(servoAngle >= 180){
+				servoAngle = 180;
+				Servo_SetAngle(servoAngle);
+			}
+			else{
+				servoAngle++;
+				Servo_SetAngle(servoAngle);
+			}
 			break;
 		case ServoRotateRight:
 			servoAngle--;
@@ -304,21 +320,15 @@ void ServoControl_TickFct(){
 			Servo_SetAngle(servoAngle);
 			break;
 	}
-}
+}//Servo Control SM
 //##################### SERVO CONTROL SM ############################
 
 
 //##################### HUMAN DETECTOR SM ############################
-//shared variables
-//unsigned char DetectedHuman; //input to main system and output of detect light (OUTPUT LED: B0, SENSOR INPUT: B1)
-
 enum HumanDetect_States {InitDetection, HumanNotDetected, HumanDetected} HumanDetect_State;
 void HumanDetect_TickFct(){
 	static unsigned char initCnt = 0;
-	static unsigned char initMax = 20; //10s
-	
-	static unsigned char detectCnt = 0;
-	static unsigned char detectMax = 20; //5s
+	static unsigned char initMax = 60; //3s @50ms give sensor time to initialize
 	
 	//transitions
 	switch(HumanDetect_State){
@@ -338,7 +348,6 @@ void HumanDetect_TickFct(){
 			}
 			else {
 				HumanDetect_State = HumanDetected;
-				detectCnt = 0;
 			}
 			break;
 		case HumanDetected:
@@ -372,30 +381,63 @@ void HumanDetect_TickFct(){
 			break;
 	}//actions
 	
-	PORTB = SetBit(PORTB,0,DetectedHuman);
+	PORTB = SetBit(PORTB,0,DetectedHuman); //turn on detection LED
 }
 //##################### HUMAN DETECTOR SM ############################
 
 
 //##################### LCD DISPLAY SM ############################
-enum LcdDisplay_States {LcdInit, DisplayLeft, DisplayRight} LcdDisplay_State;
+enum LcdDisplay_States {LcdInit, DisplayLeft, DisplayRight, DisplayAngle, DisplayAction, DisplaySun, DisplayMoon} LcdDisplay_State;
+//custom patterns
+
+
 void LcdDisplay_TickFct(){
 	static char int_buffer[10];
 	static char cursorPos;
 	static short lightL;
 	static short lightR;
+	static unsigned char sunImgPos;
+	
+	// sun/moon positions on lcd display, where the positions stand for lcd col number
+	const unsigned char LPos3 = 5, LPos2 = 6, LPos1 = 7, MiddlePos = 8, RPos1 = 9, RPos2 = 10, RPos3 = 11, RPos4 = 12;
+	
+	const char angleLcdPattern[8] = {0x17, 0x0b, 0x16, 0x1d, 0x1b, 0x17, 0x0f, 0x00};
+	const char sunLcdPattern[8] = {0x04, 0x11, 0x04, 0x0e, 0x0e, 0x04, 0x11, 0x04};
+	const char moonLcdPattern[8] = {0x00, 0x1e, 0x0f, 0x07, 0x07, 0xf, 0x1e, 0x00};
+	const unsigned char angleImg = 0x00, sunImg = 0x01, moonImg = 0x02;
 	
 	//transitions
 	switch(LcdDisplay_State){
 		case LcdInit:
-			cursorPos = 1;
+			cursorPos = 1; //cursor start position for dispLeft
 			LcdDisplay_State = DisplayLeft;
 			break;
 		case DisplayLeft:
-			cursorPos = 13;
+			cursorPos = 14; //cursor start position for dispRight
 			LcdDisplay_State = DisplayRight;
 			break;
-		case DisplayRight:
+		case DisplayRight:	//cursor start position for dispAngleImg
+			cursorPos = 17;
+			LcdDisplay_State = DisplayAngle;
+			break;
+		case DisplayAngle:
+			cursorPos = 23;
+			LcdDisplay_State = DisplayAction;
+			break;
+		case DisplayAction:
+			cursorPos = 1;
+			if(!systemOff){
+				LcdDisplay_State = DisplaySun;
+			}
+			else {
+				LcdDisplay_State = DisplayMoon;
+			}
+			break;
+		case DisplaySun:
+			cursorPos = 1;
+			LcdDisplay_State = DisplayLeft;
+			break;
+		case DisplayMoon:
 			cursorPos = 1;
 			LcdDisplay_State = DisplayLeft;
 			break;
@@ -405,16 +447,17 @@ void LcdDisplay_TickFct(){
 	switch(LcdDisplay_State)
 	{
 		case LcdInit:
-			//						 ______________
-			//initialize display to |000        000|
-			//						|______________|
+			//build custom characters for use throughout program
+			LCD_build(0,angleLcdPattern);
+			LCD_build(1,sunLcdPattern);
+			LCD_build(2,moonLcdPattern);
 			
+			LCD_ClearScreen();
 			
 			//initialize left		 ______________
 			//initialize display to |000           |
 			//						|______________|
 			cursorPos = 1;
-			LCD_ClearScreen();
 			for(unsigned char i=0;i<3;i++){
 				LCD_WriteData(0 + '0');
 				LCD_Cursor(++cursorPos);
@@ -497,6 +540,96 @@ void LcdDisplay_TickFct(){
 				cursorPos++;
 			}
 			break;
+		case DisplayAngle:
+			//draw angle image
+			LCD_Cursor(cursorPos);
+			LCD_WriteData(angleImg);
+			cursorPos++;
+		
+			itoa(servoAngle, int_buffer,10);
+			LCD_Cursor(cursorPos);
+			
+			//						 ______________
+			//2 leading 0s needed   |              |
+			//						|a00x__________|
+			if(servoAngle < 10){
+				LCD_WriteData(0 + '0');
+				cursorPos++;
+				LCD_WriteData(0 + '0');
+				cursorPos++;
+			}
+			//						 ______________
+			//1 leading 0s needed   |              |
+			//						|a0xx__________|
+			else if ( servoAngle >= 10 && servoAngle < 100){
+				LCD_WriteData(0 + '0');
+				cursorPos++;
+			}
+			
+			//if neither of the above are true, then
+			//we need 0 leading 0s, since the reading
+			//is a 3 digit number
+			//						 ______________
+			//0 leading 0s needed   |              |
+			//						|axxx__________|
+			for(unsigned char i=0; int_buffer[i]; i++){
+				LCD_WriteData(int_buffer[i]);
+				cursorPos++;
+			}
+			break;
+		case DisplayAction:
+			LCD_Cursor(cursorPos);
+			LCD_DisplayString(cursorPos,currentActionMsg);
+			break;
+		case DisplaySun:
+			//determine where the sun symbol should be based on angle
+			if((servoAngle < 23) && (servoAngle >= 0)){
+				sunImgPos = RPos4;
+			}
+			else if((servoAngle >= 23) && (servoAngle < 46)){
+				sunImgPos = RPos3;
+			}
+			else if((servoAngle >= 46) && (servoAngle < 69)){
+				sunImgPos = RPos2;
+			}
+			else if((servoAngle >= 69) && (servoAngle < 90)){
+				sunImgPos = RPos1;
+			}
+			else if((servoAngle >= 90) && (servoAngle < 113)){
+				sunImgPos = MiddlePos;
+			}
+			else if((servoAngle >= 113) && (servoAngle < 136)){
+				sunImgPos = LPos1;
+			}
+			else if((servoAngle >= 136) && (servoAngle < 158)){
+				sunImgPos = LPos2;
+			}
+			else if((servoAngle >= 158) && (servoAngle <= 180)){
+				sunImgPos = LPos3;
+			}
+			
+			for(unsigned char i = 5; i<=12; i++){
+				LCD_Cursor(i);
+				if(sunImgPos == i){
+					LCD_WriteData(sunImg);
+				}
+				else {
+					LCD_WriteData(' ');
+				}
+			}
+			
+			break;
+		case DisplayMoon:
+			for(unsigned char i = 5; i<=12; i++){
+				LCD_Cursor(i);
+				if(MiddlePos == i){
+					LCD_WriteData(moonImg);
+				}
+				else {
+					LCD_WriteData(' ');
+				}
+			}
+			break;
 	}//actions
 }
 //##################### LCD DISPLAY SM ############################
@@ -527,9 +660,6 @@ int main(void)
 	while(1)
 	{
 		pirSensor = GetBit(PINB,1); //get reading from pir sensor
-		LCD_Cursor(20);
-		LCD_WriteData(pirSensor + '0');
-		
 		
 		LcdDisplay_TickFct();
 		HumanDetect_TickFct();
