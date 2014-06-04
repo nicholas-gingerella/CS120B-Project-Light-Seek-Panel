@@ -388,9 +388,12 @@ void HumanDetect_TickFct(){
 
 //##################### LCD DISPLAY SM ############################
 enum LcdDisplay_States {LcdInit, DisplayLeft, DisplayRight, DisplayAngle, DisplayAction, DisplaySun, DisplayMoon} LcdDisplay_State;
+
 //custom patterns
-
-
+const char angleLcdPattern[8] = {0x0, 0x1, 0x2, 0x4, 0x8, 0x10, 0x1f, 0x0};
+const char sunLcdPattern[8] = {0x04, 0x11, 0x04, 0x0e, 0x0e, 0x04, 0x11, 0x04};
+const char moonLcdPattern[8] = {0x00, 0x1e, 0x0f, 0x07, 0x07, 0xf, 0x1e, 0x00};
+	
 void LcdDisplay_TickFct(){
 	static char int_buffer[10];
 	static char cursorPos;
@@ -401,9 +404,7 @@ void LcdDisplay_TickFct(){
 	// sun/moon positions on lcd display, where the positions stand for lcd col number
 	const unsigned char LPos3 = 5, LPos2 = 6, LPos1 = 7, MiddlePos = 8, RPos1 = 9, RPos2 = 10, RPos3 = 11, RPos4 = 12;
 	
-	const char angleLcdPattern[8] = {0x17, 0x0b, 0x16, 0x1d, 0x1b, 0x17, 0x0f, 0x00};
-	const char sunLcdPattern[8] = {0x04, 0x11, 0x04, 0x0e, 0x0e, 0x04, 0x11, 0x04};
-	const char moonLcdPattern[8] = {0x00, 0x1e, 0x0f, 0x07, 0x07, 0xf, 0x1e, 0x00};
+	
 	const unsigned char angleImg = 0x00, sunImg = 0x01, moonImg = 0x02;
 	
 	//transitions
@@ -448,9 +449,9 @@ void LcdDisplay_TickFct(){
 	{
 		case LcdInit:
 			//build custom characters for use throughout program
-			LCD_build(0,angleLcdPattern);
-			LCD_build(1,sunLcdPattern);
-			LCD_build(2,moonLcdPattern);
+			//LCD_build(0,angleLcdPattern);
+			//LCD_build(1,sunLcdPattern);
+			//LCD_build(2,moonLcdPattern);
 			
 			LCD_ClearScreen();
 			
@@ -579,7 +580,12 @@ void LcdDisplay_TickFct(){
 			break;
 		case DisplayAction:
 			LCD_Cursor(cursorPos);
-			LCD_DisplayString(cursorPos,currentActionMsg);
+			if(DetectedHuman && !systemOff){
+				LCD_DisplayString(cursorPos,"WARNING!!!!       ");
+			}
+			else{
+				LCD_DisplayString(cursorPos,currentActionMsg);
+			}
 			break;
 		case DisplaySun:
 			//determine where the sun symbol should be based on angle
@@ -647,6 +653,11 @@ int main(void)
 	TimerOn();
 	
 	LCD_init();//initialize lcd display for use
+	//build custom characters for use throughout program
+	LCD_build(0,angleLcdPattern);
+	LCD_build(1,sunLcdPattern);
+	LCD_build(2,moonLcdPattern);
+	
 	ADC_init();//initialize analog to digital converter
 	PWM_on();//turn on PWM and servo control
 	
@@ -661,10 +672,10 @@ int main(void)
 	{
 		pirSensor = GetBit(PINB,1); //get reading from pir sensor
 		
-		LcdDisplay_TickFct();
 		HumanDetect_TickFct();
 		LightSeek_TickFct();
 		ServoControl_TickFct();
+		LcdDisplay_TickFct();
 		while(!TimerFlag);
 		TimerFlag = 0;
 	}
