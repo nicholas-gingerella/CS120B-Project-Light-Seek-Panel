@@ -27,6 +27,7 @@ unsigned char DetectedHuman; //input to main system and output of detect light (
 unsigned char pirSensor;	//passive infrared sensor input
 unsigned short joystickReading; //analog reading from joystick
 unsigned char overrideBtn;	//override button for manual override of system
+unsigned char OverrideOn;	//1 = manual override on, 0 = manual override off
 unsigned char servoAngle;	//current servo angle of the system
 char* currentActionMsg;		//display message for current light detector action
 
@@ -59,12 +60,15 @@ void LightSeek_TickFct(){
 			if( lightMax < systemOnThresh ){
 				LightSeek_State = Off;
 			}
-			else if(overrideBtn){
-				LightSeek_State = ManualMode;
-			}
 			else{
 				powerOnCnt = 0;
 				LightSeek_State = PowerOn;
+			}
+			
+			//manual override
+			if(overrideBtn){
+				OverrideOn = 1;
+				LightSeek_State = ManualModeDown;
 			}
 			break;
 		case PowerOn:
@@ -78,6 +82,12 @@ void LightSeek_TickFct(){
 			else {
 				LightSeek_State = Off;
 			}
+			
+			//manual override
+			if(overrideBtn){
+				OverrideOn = 1;
+				LightSeek_State = ManualModeDown;
+			}
 			break;
 		case On:
 			if( (lightDiff < lightDiffThresh) && (lightMax >= systemOnThresh) ){
@@ -90,6 +100,12 @@ void LightSeek_TickFct(){
 			else {
 				shutdownCnt = 0;
 				LightSeek_State = ShutDown;
+			}
+			
+			//manual override
+			if(overrideBtn){
+				OverrideOn = 1;
+				LightSeek_State = ManualModeDown;
 			}
 			break;
 		case FilterRotate:
@@ -110,6 +126,12 @@ void LightSeek_TickFct(){
 			else {
 				LightSeek_State = On;
 			}
+			
+			//manual override
+			if(overrideBtn){
+				OverrideOn = 1;
+				LightSeek_State = ManualModeDown;
+			}
 			break;
 		case RotateRight:
 			if( (lightDiff > (lightDiffThresh - (lightDiffThresh/2))) && (servoAngle > 0) && (lightL < lightR) && !DetectedHuman){
@@ -120,6 +142,12 @@ void LightSeek_TickFct(){
 				rotateRight = 0;
 				LightSeek_State = On;
 			}
+			
+			//manual override
+			if(overrideBtn){
+				OverrideOn = 1;
+				LightSeek_State = ManualModeDown;
+			}
 			break;
 		case RotateLeft:
 			if( (lightDiff > (lightDiffThresh - (lightDiffThresh/2))) && (servoAngle < 180) && (lightL > lightR) && !DetectedHuman){
@@ -129,6 +157,12 @@ void LightSeek_TickFct(){
 				rotateLeft = 0;
 				rotateRight = 0;
 				LightSeek_State = On;
+			}
+			
+			//manual override
+			if(overrideBtn){
+				OverrideOn = 1;
+				LightSeek_State = ManualModeDown;
 			}
 			break;
 		case ShutDown:
@@ -141,16 +175,56 @@ void LightSeek_TickFct(){
 			else{
 				LightSeek_State = On;
 			}
+			
+			//manual override
+			if(overrideBtn){
+				LightSeek_State = ManualModeDown;
+			}
 			break;
-		case ManualModeDown:
+		case ManualModeDown: //pressing down on manual mode btn
+			if(overrideBtn){
+				LightSeek_State = ManualModeDown;
+			} else{
+				LightSeek_State = ManualMode;
+			}
 			break;
-		case ManualMode:
+		case ManualMode: //officially in manual mode
+			/*
+			 *if joystick gives a left reading, go to ManualLeft
+			 *else if if joystick gives a right reading, go to ManualRight
+			 */
+			/*
+			if(OverrideOn && joystickReading ...){
+				
+			}
+			else if(OverrideOn && joystickReading ...){
+				
+			}
+			else (OverrideOn && overrideBtn){
+				LightSeek_State = AutoModeDown;
+			}
+			*/
 			break;
-		case ManualLeft:
+		case ManualLeft: //manually rotate left (set rotateLeft)
+			/*if(OverrideOn && joystickReading ...){
+				LightSeek_State = ManualLeft;
+			} else {
+				LightSeek_State = ManualMode;
+			}*/
 			break;
-		case ManualRight:
+		case ManualRight: //manually rotate right (set rotateRight)
+			/*if(OverrideOn && joystickReading ...){
+				LightSeek_State = ManualRight;
+			} else {
+				LightSeek_State = ManualMode;
+			}*/
 			break;
-		case AutoModeDown:
+		case AutoModeDown://pressing down on manual mode btn (goes to On state)
+			if(overrideBtn){
+				LightSeek_State = AutoModeDown;
+			} else {
+				LightSeek_State = On;
+			}
 			break;
 		default:
 			LightSeek_State = LightSeekInit;
@@ -235,14 +309,25 @@ void LightSeek_TickFct(){
 			lightMax = maxValue(lightL, lightR);
 			break;
 		case ManualModeDown: //pressing down on manual mode btn
+			rotateLeft = 0;
+			rotateRight = 0;
 			break;
 		case ManualMode: //officially in manual mode
+			rotateLeft = 0;
+			rotateRight = 0;
 			break;
-		case ManualLeft:
+		case ManualLeft: //manually rotate left (set rotateLeft)
+			rotateLeft = 1;
+			rotateRight = 0;
 			break;
-		case ManualRight:
+		case ManualRight: //manually rotate right (set rotateRight)
+			rotateLeft = 0;
+			rotateRight = 1;
 			break;
-		case AutoModeDown:
+		case AutoModeDown://pressing down on manual mode btn (goes to On state)
+			OverrideOn = 0;
+			rotateLeft = 0;
+			rotateRight = 0;
 			break;
 		default:
 			lightL = 0;
