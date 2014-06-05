@@ -4,10 +4,12 @@
 #define ADC_H
 
 // variables for adc analog inputs
-volatile uint16_t LEFT_LIGHT_SENSOR;	//A0: light from left sensor
-volatile uint16_t RIGHT_LIGHT_SENSOR;	//A1: light from right sensor
+volatile uint16_t LEFT_LIGHT_SENSOR;				//A0: light from left sensor
+volatile uint16_t RIGHT_LIGHT_SENSOR;				//A1: light from right sensor
+volatile unsigned short ANALOG_STICK_READING;		//A2: joystick reading
 
-
+//Interrupt Service Routine for ADC
+//Triggers when a conversion completes
 ISR(ADC_vect){
 	// Check which port is currently active
 	// for ADC conversion: 0000 xxxx <-- I only care about [2:0]
@@ -24,12 +26,13 @@ ISR(ADC_vect){
 			break;
 		case 1:
 			RIGHT_LIGHT_SENSOR = result;
+			ADC_SetReadPort(2);
+			break;
+		case 2:
+			ANALOG_STICK_READING = result;
 			ADC_SetReadPort(0);
 			break;
-			/*
-		case 2:
-			// update analog input variable on A2
-			break;
+		/*
 		case 3:
 			// update analog input variable on A3
 			break;
@@ -50,13 +53,12 @@ ISR(ADC_vect){
 			break;
 	}
 	
-	ADCSRA |= (1 << ADSC); // next conversion?
+	ADCSRA |= (1 << ADSC); // start next conversion
 }
 
 
 void ADC_init() {
 	ADCSRA |= (1 << ADPS2) | (1 << ADPS1);
-	//ADCSRA |= (1 << ADATE);
 	ADCSRA |= (1 << ADIE);
 	ADCSRA |= (1 << ADEN);
 	// ADPS[2:0] = 110: prescaler 64 -> 8000kHz/64 = 125kHz
@@ -70,7 +72,7 @@ void ADC_init() {
 
 void ADC_SetReadPort(unsigned char portA_num){
 	
-	// if the user enters a port number that doesn't
+	// if the user enters a port number that is too large
 	// exist, just default to port A7
 	if(portA_num > 7){
 		portA_num = 7;

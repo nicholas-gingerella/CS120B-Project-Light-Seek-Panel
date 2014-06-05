@@ -25,6 +25,8 @@ unsigned char rotateRight; //1=rotate right, 0=no rotate
 unsigned char systemOff;		//1=off, 0=On
 unsigned char DetectedHuman; //input to main system and output of detect light (OUTPUT LED: B0, SENSOR INPUT: B1)
 unsigned char pirSensor;	//passive infrared sensor input
+unsigned short joystickReading; //analog reading from joystick
+unsigned char overrideBtn;	//override button for manual override of system
 unsigned char servoAngle;	//current servo angle of the system
 char* currentActionMsg;		//display message for current light detector action
 
@@ -33,7 +35,9 @@ char* currentActionMsg;		//display message for current light detector action
 //#################### (MAIN) LIGHT SEEK SM #########################
 unsigned short LightSeek_Period = 1;
 
-enum LightSeek_States {LightSeekInit, Off, PowerOn, ShutDown, On, FilterRotate, RotateLeft, RotateRight} LightSeek_State;
+enum LightSeek_States {LightSeekInit, Off, PowerOn, ShutDown, On, FilterRotate, 
+	RotateLeft, RotateRight, ManualModeDown, ManualMode, ManualRight, ManualLeft,
+	AutoModeDown} LightSeek_State;
 void LightSeek_TickFct(){
 	static unsigned short lightL, lightR, lightMax;
 	static unsigned char filterCnt, shutdownCnt, powerOnCnt, servoAngle;
@@ -54,6 +58,9 @@ void LightSeek_TickFct(){
 		case Off:
 			if( lightMax < systemOnThresh ){
 				LightSeek_State = Off;
+			}
+			else if(overrideBtn){
+				LightSeek_State = ManualMode;
 			}
 			else{
 				powerOnCnt = 0;
@@ -134,6 +141,16 @@ void LightSeek_TickFct(){
 			else{
 				LightSeek_State = On;
 			}
+			break;
+		case ManualModeDown:
+			break;
+		case ManualMode:
+			break;
+		case ManualLeft:
+			break;
+		case ManualRight:
+			break;
+		case AutoModeDown:
 			break;
 		default:
 			LightSeek_State = LightSeekInit;
@@ -216,6 +233,16 @@ void LightSeek_TickFct(){
 			rotateRight = 0;
 			systemOff = 0;
 			lightMax = maxValue(lightL, lightR);
+			break;
+		case ManualModeDown: //pressing down on manual mode btn
+			break;
+		case ManualMode: //officially in manual mode
+			break;
+		case ManualLeft:
+			break;
+		case ManualRight:
+			break;
+		case AutoModeDown:
 			break;
 		default:
 			lightL = 0;
@@ -381,7 +408,11 @@ void HumanDetect_TickFct(){
 			break;
 	}//actions
 	
-	PORTB = SetBit(PORTB,0,DetectedHuman); //turn on detection LED
+	if(!systemOff){
+		PORTB = SetBit(PORTB,0,DetectedHuman); //turn on detection LED
+	} else {
+		PORTB = SetBit(PORTB,0,0);
+	}
 }
 //##################### HUMAN DETECTOR SM ############################
 
@@ -644,7 +675,10 @@ void LcdDisplay_TickFct(){
 
 int main(void)
 {
-	DDRB = 1 << 6 | 1 << 0; PORTB = 0xBE;
+	// TODO: setup inputs and outputs for override
+	// Joystick taken care of by ADC A2, just need
+	// output for manual override led
+	DDRB = 1 << 6 | 1 << 1 | 1 << 0; PORTB = 0xBE;
 	DDRD = 0xFF;
 	DDRC = 0x03;
 	
