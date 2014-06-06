@@ -1,3 +1,15 @@
+/*	Nicholas Gingerella nging001@ucr.edu
+ *  Lab Section: 22
+ *  Assignment: Custom Lab - Light Seeker
+ *  Project Description:
+ *      A miniature solar panel that automatically adjusts its orientation to point towards
+ *		the most light. Uses PWM, ADC, two photoresistors, one servo motor, and one analog
+ *      joystick
+ *
+ *  I acknowledge all content contained herein, excluding template or example
+ *  code, is my own original work
+ */
+
 #include <string.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>

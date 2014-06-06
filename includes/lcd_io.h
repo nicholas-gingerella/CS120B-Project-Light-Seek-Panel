@@ -1,3 +1,15 @@
+/*	Nicholas Gingerella nging001@ucr.edu
+ *  Lab Section: 22
+ *  Assignment: Custom Lab - Light Seeker
+ *  Project Description:
+ *      A miniature solar panel that automatically adjusts its orientation to point towards
+ *		the most light. Uses PWM, ADC, two photoresistors, one servo motor, and one analog
+ *      joystick
+ *
+ *  I acknowledge all content contained herein, excluding template or example
+ *  code, is my own original work
+ */
+
 #ifndef _LCDIO_H
 #define _LCDIO_H
 
@@ -30,7 +42,7 @@ void LCD_init(void) {
 	LCD_WriteCommand(0x06);
 	LCD_WriteCommand(0x0f);
 	LCD_WriteCommand(0x01);
-	LCD_WriteCommand(0x0C); //turn cursor off?
+	LCD_WriteCommand(0x0C); //turn cursor off
 	delay_ms(10);						 
 }
 
