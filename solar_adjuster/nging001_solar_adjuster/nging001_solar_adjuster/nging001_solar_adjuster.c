@@ -168,6 +168,7 @@ void LightSeek_TickFct(){
 		case ShutDown:
 			if( (shutdownCnt < shutdownMax) && (lightMax < systemOnThresh) ){
 				shutdownCnt++;
+				LightSeek_State = ShutDown;
 			}
 			else if( (shutdownCnt >= shutdownMax) && (lightMax < systemOnThresh) ){
 				LightSeek_State = Off;
@@ -193,31 +194,32 @@ void LightSeek_TickFct(){
 			 *if joystick gives a left reading, go to ManualLeft
 			 *else if if joystick gives a right reading, go to ManualRight
 			 */
-			/*
-			if(OverrideOn && joystickReading ...){
-				
+			
+			if(OverrideOn && (joystickReading < 500) && !DetectedHuman){
+				LightSeek_State = ManualLeft;
 			}
-			else if(OverrideOn && joystickReading ...){
-				
+			else if(OverrideOn && (joystickReading > 600) && !DetectedHuman){
+				LightSeek_State = ManualRight;
 			}
-			else (OverrideOn && overrideBtn){
+			
+			
+			if(OverrideOn && overrideBtn){
 				LightSeek_State = AutoModeDown;
 			}
-			*/
 			break;
 		case ManualLeft: //manually rotate left (set rotateLeft)
-			/*if(OverrideOn && joystickReading ...){
+			if(OverrideOn && (joystickReading < 500) && !DetectedHuman){
 				LightSeek_State = ManualLeft;
 			} else {
 				LightSeek_State = ManualMode;
-			}*/
+			}
 			break;
 		case ManualRight: //manually rotate right (set rotateRight)
-			/*if(OverrideOn && joystickReading ...){
+			if(OverrideOn && (joystickReading > 600) && !DetectedHuman){
 				LightSeek_State = ManualRight;
 			} else {
 				LightSeek_State = ManualMode;
-			}*/
+			}
 			break;
 		case AutoModeDown://pressing down on manual mode btn (goes to On state)
 			if(overrideBtn){
@@ -300,7 +302,7 @@ void LightSeek_TickFct(){
 			lightDiff = absDifference(lightL,lightR);
 			break;
 		case ShutDown:
-			currentActionMsg = "Shut Off          ";
+			currentActionMsg = "Shutdown          ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateLeft = 0;
@@ -311,23 +313,36 @@ void LightSeek_TickFct(){
 		case ManualModeDown: //pressing down on manual mode btn
 			rotateLeft = 0;
 			rotateRight = 0;
+			OverrideOn = 1;
+			currentActionMsg = "Manual          ";
 			break;
 		case ManualMode: //officially in manual mode
 			rotateLeft = 0;
 			rotateRight = 0;
+			OverrideOn = 1;
+			joystickReading = ANALOG_STICK_READING;
+			currentActionMsg = "Manual          ";
+			PORTB = SetBit(PORTB,3,1);
 			break;
 		case ManualLeft: //manually rotate left (set rotateLeft)
 			rotateLeft = 1;
 			rotateRight = 0;
+			OverrideOn = 1;
+			joystickReading = ANALOG_STICK_READING;
+			currentActionMsg = "Left          ";
 			break;
 		case ManualRight: //manually rotate right (set rotateRight)
 			rotateLeft = 0;
 			rotateRight = 1;
+			OverrideOn = 1;
+			joystickReading = ANALOG_STICK_READING;
+			currentActionMsg = "Right          ";
 			break;
 		case AutoModeDown://pressing down on manual mode btn (goes to On state)
 			OverrideOn = 0;
 			rotateLeft = 0;
 			rotateRight = 0;
+			PORTB = SetBit(PORTB,3,0);
 			break;
 		default:
 			lightL = 0;
@@ -354,7 +369,7 @@ void ServoControl_TickFct(){
 			ServoControl_State = ServoWait;
 			break;
 		case ServoWait:
-			if(systemOff){
+			if(systemOff && !OverrideOn){
 				ServoControl_State = ServoDefaultPos;
 			}
 			else if(rotateLeft && !rotateRight){
@@ -368,7 +383,7 @@ void ServoControl_TickFct(){
 			}
 			break;
 		case ServoDefaultPos:
-			if(systemOff){
+			if(systemOff && !OverrideOn){
 				ServoControl_State = ServoDefaultPos;
 			}
 			else{
@@ -493,7 +508,7 @@ void HumanDetect_TickFct(){
 			break;
 	}//actions
 	
-	if(!systemOff){
+	if(!systemOff || OverrideOn){
 		PORTB = SetBit(PORTB,0,DetectedHuman); //turn on detection LED
 	} else {
 		PORTB = SetBit(PORTB,0,0);
@@ -543,7 +558,7 @@ void LcdDisplay_TickFct(){
 			break;
 		case DisplayAction:
 			cursorPos = 1;
-			if(!systemOff){
+			if(!systemOff || OverrideOn){
 				LcdDisplay_State = DisplaySun;
 			}
 			else {
@@ -696,7 +711,7 @@ void LcdDisplay_TickFct(){
 			break;
 		case DisplayAction:
 			LCD_Cursor(cursorPos);
-			if(DetectedHuman && !systemOff){
+			if(DetectedHuman && (!systemOff || OverrideOn)){
 				LCD_DisplayString(cursorPos,"WARNING!!!!       ");
 			}
 			else{
@@ -763,7 +778,7 @@ int main(void)
 	// TODO: setup inputs and outputs for override
 	// Joystick taken care of by ADC A2, just need
 	// output for manual override led
-	DDRB = 1 << 6 | 1 << 1 | 1 << 0; PORTB = 0xBE;
+	DDRB = 1 << 6 | 1 << 3 | 1 << 0; PORTB = 0xB6; //1011 0110
 	DDRD = 0xFF;
 	DDRC = 0x03;
 	
@@ -790,6 +805,7 @@ int main(void)
 	while(1)
 	{
 		pirSensor = GetBit(PINB,1); //get reading from pir sensor
+		overrideBtn = GetBit(~PINB,2); //get joystick button press
 		
 		HumanDetect_TickFct();
 		LightSeek_TickFct();
