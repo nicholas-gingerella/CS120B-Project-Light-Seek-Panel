@@ -320,6 +320,7 @@ void LightSeek_TickFct(){
 			rotateLeft = 0;
 			rotateRight = 0;
 			OverrideOn = 1;
+			systemOff = 0;
 			joystickReading = ANALOG_STICK_READING;
 			currentActionMsg = "Manual          ";
 			PORTB = SetBit(PORTB,3,1);

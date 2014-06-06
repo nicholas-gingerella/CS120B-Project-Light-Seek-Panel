@@ -30,6 +30,7 @@ void LCD_init(void) {
 	LCD_WriteCommand(0x06);
 	LCD_WriteCommand(0x0f);
 	LCD_WriteCommand(0x01);
+	LCD_WriteCommand(0x0C); //turn cursor off?
 	delay_ms(10);						 
 }
 
