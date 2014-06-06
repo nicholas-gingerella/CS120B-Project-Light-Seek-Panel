@@ -7,6 +7,7 @@
 #include "adc.h"
 #include "servo.h"
 
+//################## Utility Functions ############################
 //find max value of two numbers
 unsigned short maxValue(unsigned short x, unsigned short y){
 	return x > y ? x : y;
@@ -16,36 +17,38 @@ unsigned short maxValue(unsigned short x, unsigned short y){
 unsigned short absDifference(unsigned short x, unsigned short y){
 	return x > y ? (x - y) : (y - x);
 }
+//################## Utility Functions ############################
 
 
-//shared variables
-unsigned short lightDiff;
-unsigned char rotateLeft;	//1=rotate left, 0=no rotate
-unsigned char rotateRight; //1=rotate right, 0=no rotate
+//############## SHARED STATE MACHINE VARIABLES ###################
+unsigned short lightDiff;		//difference between left and right light readings
+unsigned char rotateLeft;		//1=rotate left, 0=no rotate
+unsigned char rotateRight;		//1=rotate right, 0=no rotate
 unsigned char systemOff;		//1=off, 0=On
-unsigned char DetectedHuman; //input to main system and output of detect light (OUTPUT LED: B0, SENSOR INPUT: B1)
-unsigned char pirSensor;	//passive infrared sensor input
+unsigned char DetectedHuman;	//input to main system and output of detect light (OUTPUT LED: B0, SENSOR INPUT: B1)
+unsigned char pirSensor;		//passive infrared sensor input
 unsigned short joystickReading; //analog reading from joystick
-unsigned char overrideBtn;	//override button for manual override of system
-unsigned char OverrideOn;	//1 = manual override on, 0 = manual override off
-unsigned char servoAngle;	//current servo angle of the system
-char* currentActionMsg;		//display message for current light detector action
+unsigned char overrideBtn;		//override button for manual override of system
+unsigned char OverrideOn;		//1 = manual override on, 0 = manual override off
+unsigned char servoAngle;		//current servo angle of the system
+char* currentActionMsg;			//display message for current light detector action
+//############## SHARED STATE MACHINE VARIABLES ###################
 
 
 
 //#################### (MAIN) LIGHT SEEK SM #########################
-unsigned short LightSeek_Period = 1;
-
 enum LightSeek_States {LightSeekInit, Off, PowerOn, ShutDown, On, FilterRotate, 
 	RotateLeft, RotateRight, ManualModeDown, ManualMode, ManualRight, ManualLeft,
 	AutoModeDown} LightSeek_State;
+	
 void LightSeek_TickFct(){
-	static unsigned short lightL, lightR, lightMax;
-	static unsigned char filterCnt, shutdownCnt, powerOnCnt, servoAngle;
+	//local variables for SM
+	static unsigned short lightL, lightR, lightMax;				//light reading information
+	static unsigned char filterCnt, shutdownCnt, powerOnCnt;	//timing counters for filtering functionality
 	
 	// range thresholds for system operation
 	const unsigned char lightDiffThresh = 20;	// the difference needed to init seeking logic
-	const unsigned char systemOnThresh = 100;	// the minimum light reading needed for system power
+	const unsigned char systemOnThresh = 80;	// the minimum light reading needed for system power
 	
 	const unsigned char filterMax = 40;		// 2s @50ms
 	const unsigned char shutdownMax = 100;	// 5s @50ms
@@ -57,21 +60,30 @@ void LightSeek_TickFct(){
 			LightSeek_State = Off;
 			break;
 		case Off:
+			// If the minimum amount of light needed for system
+			// operation is not present, keep the system off.
+			// But if there is enough light, start system.
 			if( lightMax < systemOnThresh ){
 				LightSeek_State = Off;
 			}
 			else{
-				powerOnCnt = 0;
+				powerOnCnt = 0;	// initialize filter counter for PowerOn
 				LightSeek_State = PowerOn;
 			}
 			
-			//manual override
+			// Regardless of anything else, if the system override button
+			// was pressed, enter manual override mode
 			if(overrideBtn){
-				OverrideOn = 1;
+				OverrideOn = 1;	// set flag to let everyone know we are in manual mode
 				LightSeek_State = ManualModeDown;
 			}
 			break;
 		case PowerOn:
+			// Before committing to a full power up, wait for 5 seconds.
+			// If the needed amount of light is still present after 5 seconds,
+			// then go ahead and enter On mode, but if needed light is gone
+			// before this time is up, then it's considered some random light
+			// we are not interested in, so we go back to the off state.
 			if( (powerOnCnt < powerOnMax) && (lightMax >= systemOnThresh) ){
 				powerOnCnt++;
 				LightSeek_State = PowerOn;
@@ -83,13 +95,18 @@ void LightSeek_TickFct(){
 				LightSeek_State = Off;
 			}
 			
-			//manual override
+			// Regardless of anything else, if the system override button
+			// was pressed, enter manual override mode
 			if(overrideBtn){
-				OverrideOn = 1;
+				OverrideOn = 1;	// set flag to let everyone know we are in manual mode
 				LightSeek_State = ManualModeDown;
 			}
 			break;
 		case On:
+			// If the difference between the two light sensors is great enough, then
+			// we will attempt to search for light, but if not, then we keep waiting
+			// in the current state. If the needed light for operation is no longer
+			// present, then we start to shut the system down.
 			if( (lightDiff < lightDiffThresh) && (lightMax >= systemOnThresh) ){
 				LightSeek_State = On;
 			}
@@ -102,70 +119,86 @@ void LightSeek_TickFct(){
 				LightSeek_State = ShutDown;
 			}
 			
-			//manual override
+			// Regardless of anything else, if the system override button
+			// was pressed, enter manual override mode
 			if(overrideBtn){
-				OverrideOn = 1;
+				OverrideOn = 1;	// set flag to let everyone know we are in manual mode
 				LightSeek_State = ManualModeDown;
 			}
 			break;
 		case FilterRotate:
+			// Before intiating search logic, first wait for 2 seconds, if the difference in 
+			// the light is still present, then go ahead and start search logic, but if the 
+			// difference between the two readings is no longer sufficient to activate search,
+			// then go back to the On state. The level of light sensed by each individual sensor
+			// will determine if the panel moves left or right, if more light is sensed by the
+			// right sensor, then tilt the panel to the right to try and even it out, and vice versa
+			// for left panel movement
 			if( (filterCnt < filterMax) && (lightDiff >= lightDiffThresh) && !DetectedHuman ){
 				filterCnt++;
 				LightSeek_State = FilterRotate;
 			}
 			else if( (filterCnt >= filterMax) && (lightDiff >= lightDiffThresh) && (lightL > lightR) && !DetectedHuman){
-				rotateLeft = 1;
-				rotateRight = 0;
 				LightSeek_State = RotateLeft;
 			}
 			else if( (filterCnt >= filterMax) && (lightDiff >= lightDiffThresh) && (lightL < lightR) && !DetectedHuman){
-				rotateLeft = 0;
-				rotateRight = 1;
 				LightSeek_State = RotateRight;
 			}
 			else {
 				LightSeek_State = On;
 			}
 			
-			//manual override
+			// Regardless of anything else, if the system override button
+			// was pressed, enter manual override mode
 			if(overrideBtn){
-				OverrideOn = 1;
+				OverrideOn = 1;	// set flag to let everyone know we are in manual mode
 				LightSeek_State = ManualModeDown;
 			}
 			break;
 		case RotateRight:
+			// If there is a great enough difference in light, the current servo angle is within bounds, the right sensor
+			// detects more light than the left, and the motion detector doesn't detect anyone near the panel, then
+			// we are ok to keep moving the panel to the right. If not, then we are done with search logic, and should
+			// return to the default On state
 			if( (lightDiff > (lightDiffThresh - (lightDiffThresh/2))) && (servoAngle > 0) && (lightL < lightR) && !DetectedHuman){
 				LightSeek_State = RotateRight;
 			}
 			else{
-				rotateLeft = 0;
-				rotateRight = 0;
+				//rotateLeft = 0;
+				//rotateRight = 0;
 				LightSeek_State = On;
 			}
 			
-			//manual override
+			// Regardless of anything else, if the system override button
+			// was pressed, enter manual override mode
 			if(overrideBtn){
-				OverrideOn = 1;
+				OverrideOn = 1;	// set flag to let everyone know we are in manual mode
 				LightSeek_State = ManualModeDown;
 			}
 			break;
 		case RotateLeft:
+			// If there is a great enough difference in light, the current servo angle is within bounds, the left sensor
+			// detects more light than the right, and the motion detector doesn't detect anyone near the panel, then
+			// we are ok to keep moving the panel to the left. If not, then we are done with search logic, and should
+			// return to the default On state
 			if( (lightDiff > (lightDiffThresh - (lightDiffThresh/2))) && (servoAngle < 180) && (lightL > lightR) && !DetectedHuman){
 				LightSeek_State = RotateLeft;
 			}
 			else{
-				rotateLeft = 0;
-				rotateRight = 0;
 				LightSeek_State = On;
 			}
 			
-			//manual override
+			// Regardless of anything else, if the system override button
+			// was pressed, enter manual override mode
 			if(overrideBtn){
-				OverrideOn = 1;
+				OverrideOn = 1;	// set flag to let the system know we are in manual mode
 				LightSeek_State = ManualModeDown;
 			}
 			break;
 		case ShutDown:
+			// Before fully shutting down, wait for 5 seconds. If there still isn't
+			// enough light to warrant system operation, then go into the Off state.
+			// But if there is still enough light, then go back to On
 			if( (shutdownCnt < shutdownMax) && (lightMax < systemOnThresh) ){
 				shutdownCnt++;
 				LightSeek_State = ShutDown;
@@ -177,24 +210,25 @@ void LightSeek_TickFct(){
 				LightSeek_State = On;
 			}
 			
-			//manual override
+			// Regardless of anything else, if the system override button
+			// was pressed, enter manual override mode
 			if(overrideBtn){
+				OverrideOn = 1;	// set flag to let everyone know we are in manual mode
 				LightSeek_State = ManualModeDown;
 			}
 			break;
-		case ManualModeDown: //pressing down on manual mode btn
+		case ManualModeDown:
+			// Currently pressing down on the Override button, wait for
+			// the button to be released before going into Manual Mode
 			if(overrideBtn){
 				LightSeek_State = ManualModeDown;
 			} else{
 				LightSeek_State = ManualMode;
 			}
 			break;
-		case ManualMode: //officially in manual mode
-			/*
-			 *if joystick gives a left reading, go to ManualLeft
-			 *else if if joystick gives a right reading, go to ManualRight
-			 */
-			
+		case ManualMode:
+			// If the Analog joystick moves to the left, tilt panel left
+			// If the Analog joystick moves to the right, tilt panel right
 			if(OverrideOn && (joystickReading < 500) && !DetectedHuman){
 				LightSeek_State = ManualLeft;
 			}
@@ -203,25 +237,36 @@ void LightSeek_TickFct(){
 			}
 			
 			
-			if(OverrideOn && overrideBtn){
+			// Regardless of anything else, if the system override button
+			// was pressed, go back to auto mode
+			if(overrideBtn){
+				OverrideOn = 0;	// set flag to let everyone know we are in manual mode
 				LightSeek_State = AutoModeDown;
 			}
 			break;
-		case ManualLeft: //manually rotate left (set rotateLeft)
+		case ManualLeft: 
+			// manually rotate left (set rotateLeft)
+			// As long as we are in override mode and no one has been
+			// detected by the motion detector
 			if(OverrideOn && (joystickReading < 500) && !DetectedHuman){
 				LightSeek_State = ManualLeft;
 			} else {
 				LightSeek_State = ManualMode;
 			}
 			break;
-		case ManualRight: //manually rotate right (set rotateRight)
+		case ManualRight: 
+			// manually rotate right (set rotateRight)
+			// As long as we are in override mode and no one has been
+			// detected by the motion detector
 			if(OverrideOn && (joystickReading > 600) && !DetectedHuman){
 				LightSeek_State = ManualRight;
 			} else {
 				LightSeek_State = ManualMode;
 			}
 			break;
-		case AutoModeDown://pressing down on manual mode btn (goes to On state)
+		case AutoModeDown:
+			// Currently pressing down on the Override button, wait for
+			// the button to be released before going back into auto mode
 			if(overrideBtn){
 				LightSeek_State = AutoModeDown;
 			} else {
@@ -237,6 +282,7 @@ void LightSeek_TickFct(){
 	//actions
 	switch(LightSeek_State){
 		case LightSeekInit:
+			// initialize control variables
 			lightL = 0;
 			lightR = 0;
 			rotateLeft = 0;
@@ -246,7 +292,7 @@ void LightSeek_TickFct(){
 			servoAngle = 90;
 			break;
 		case Off:
-			currentActionMsg = "Sys Off         ";
+			currentActionMsg = "POWER OFF           ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateLeft = 0;
@@ -256,7 +302,7 @@ void LightSeek_TickFct(){
 			servoAngle = 90;
 			break;
 		case PowerOn:
-			currentActionMsg = "Power On         ";
+			currentActionMsg = "BOOTING UP      ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateLeft = 0;
@@ -265,7 +311,7 @@ void LightSeek_TickFct(){
 			lightMax = maxValue(lightL, lightR);
 			break;
 		case On:
-			currentActionMsg = "Sys On          ";
+			currentActionMsg = "SENSING         ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateLeft = 0;
@@ -284,7 +330,7 @@ void LightSeek_TickFct(){
 			lightDiff = absDifference(lightL,lightR);
 			break;
 		case RotateRight:
-			currentActionMsg = "Searching         ";
+			currentActionMsg = "SEARCHING         ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateRight = 1;
@@ -293,7 +339,7 @@ void LightSeek_TickFct(){
 			lightDiff = absDifference(lightL,lightR);
 			break;
 		case RotateLeft:
-			currentActionMsg = "Searching          ";
+			currentActionMsg = "SEARCHING          ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateRight = 0;
@@ -302,7 +348,7 @@ void LightSeek_TickFct(){
 			lightDiff = absDifference(lightL,lightR);
 			break;
 		case ShutDown:
-			currentActionMsg = "Shutdown          ";
+			currentActionMsg = "SHUTDOWN          ";
 			lightL = LEFT_LIGHT_SENSOR;
 			lightR = RIGHT_LIGHT_SENSOR;
 			rotateLeft = 0;
@@ -310,40 +356,40 @@ void LightSeek_TickFct(){
 			systemOff = 0;
 			lightMax = maxValue(lightL, lightR);
 			break;
-		case ManualModeDown: //pressing down on manual mode btn
+		case ManualModeDown:
 			rotateLeft = 0;
 			rotateRight = 0;
 			OverrideOn = 1;
-			currentActionMsg = "Manual          ";
+			currentActionMsg = "MANUAL          ";
 			break;
-		case ManualMode: //officially in manual mode
+		case ManualMode:
 			rotateLeft = 0;
 			rotateRight = 0;
 			OverrideOn = 1;
 			systemOff = 0;
 			joystickReading = ANALOG_STICK_READING;
-			currentActionMsg = "Manual          ";
-			PORTB = SetBit(PORTB,3,1);
+			currentActionMsg = "MANUAL          ";
+			PORTB = SetBit(PORTB,3,1); // Turns on manual led
 			break;
-		case ManualLeft: //manually rotate left (set rotateLeft)
+		case ManualLeft:
 			rotateLeft = 1;
 			rotateRight = 0;
 			OverrideOn = 1;
 			joystickReading = ANALOG_STICK_READING;
-			currentActionMsg = "Left          ";
+			currentActionMsg = "MANUAL L         ";
 			break;
-		case ManualRight: //manually rotate right (set rotateRight)
+		case ManualRight:
 			rotateLeft = 0;
 			rotateRight = 1;
 			OverrideOn = 1;
 			joystickReading = ANALOG_STICK_READING;
-			currentActionMsg = "Right          ";
+			currentActionMsg = "MANUAL R          ";
 			break;
-		case AutoModeDown://pressing down on manual mode btn (goes to On state)
+		case AutoModeDown:
 			OverrideOn = 0;
 			rotateLeft = 0;
 			rotateRight = 0;
-			PORTB = SetBit(PORTB,3,0);
+			PORTB = SetBit(PORTB,3,0); // Turns off manual led
 			break;
 		default:
 			lightL = 0;
@@ -456,11 +502,14 @@ void ServoControl_TickFct(){
 enum HumanDetect_States {InitDetection, HumanNotDetected, HumanDetected} HumanDetect_State;
 void HumanDetect_TickFct(){
 	static unsigned char initCnt = 0;
-	static unsigned char initMax = 60; //3s @50ms give sensor time to initialize
+	static unsigned char initMax = 100; //5s @50ms give sensor time to initialize
 	
 	//transitions
 	switch(HumanDetect_State){
 		case InitDetection:
+			// The PIR sensor requires a small amount of time to
+			// initialize before it operates properly, so wait 5
+			// seconds before doing anything with the sensor
 			if(initCnt < initMax){
 				initCnt++;
 				HumanDetect_State = InitDetection;
@@ -471,6 +520,8 @@ void HumanDetect_TickFct(){
 			}
 			break;
 		case HumanNotDetected:
+			// If the PIR sensor did not detect motion,
+			// just stay in this state
 			if(!pirSensor){
 				HumanDetect_State = HumanNotDetected;
 			}
@@ -479,6 +530,8 @@ void HumanDetect_TickFct(){
 			}
 			break;
 		case HumanDetected:
+			// If the PIR sensor detected motion, set a flag
+			// in the system so the other state machines know
 			if(pirSensor){
 				HumanDetect_State = HumanDetected;
 			}
@@ -509,6 +562,9 @@ void HumanDetect_TickFct(){
 			break;
 	}//actions
 	
+	// The warning light led should turn on whether the sytem
+	// is on or in override mode, but noth when the system itself
+	// is off.
 	if(!systemOff || OverrideOn){
 		PORTB = SetBit(PORTB,0,DetectedHuman); //turn on detection LED
 	} else {
@@ -521,44 +577,46 @@ void HumanDetect_TickFct(){
 //##################### LCD DISPLAY SM ############################
 enum LcdDisplay_States {LcdInit, DisplayLeft, DisplayRight, DisplayAngle, DisplayAction, DisplaySun, DisplayMoon} LcdDisplay_State;
 
-//custom patterns
+// custom patterns for lcd
 const char angleLcdPattern[8] = {0x0, 0x1, 0x2, 0x4, 0x8, 0x10, 0x1f, 0x0};
 const char sunLcdPattern[8] = {0x04, 0x11, 0x04, 0x0e, 0x0e, 0x04, 0x11, 0x04};
 const char moonLcdPattern[8] = {0x00, 0x1e, 0x0f, 0x07, 0x07, 0xf, 0x1e, 0x00};
 	
 void LcdDisplay_TickFct(){
-	static char int_buffer[10];
-	static char cursorPos;
-	static short lightL;
-	static short lightR;
-	static unsigned char sunImgPos;
+	static char int_buffer[10];		// small buffer to help display numerical values on lcd
+	static char cursorPos;			// holds the current position of the cursor on the lcd
+	static short lightL;			// holds the value of the left light sensor
+	static short lightR;			// holds the value of the right light sensor
+	static unsigned char sunImgPos;	// holds position of the sun img in the state machine
 	
 	// sun/moon positions on lcd display, where the positions stand for lcd col number
 	const unsigned char LPos3 = 5, LPos2 = 6, LPos1 = 7, MiddlePos = 8, RPos1 = 9, RPos2 = 10, RPos3 = 11, RPos4 = 12;
 	
-	
+	// the address within the lcd memory where our custom characters reside
 	const unsigned char angleImg = 0x00, sunImg = 0x01, moonImg = 0x02;
 	
-	//transitions
+	// transitions
 	switch(LcdDisplay_State){
 		case LcdInit:
-			cursorPos = 1; //cursor start position for dispLeft
+			cursorPos = 1; // cursor start position for dispLeft sensor
 			LcdDisplay_State = DisplayLeft;
 			break;
 		case DisplayLeft:
-			cursorPos = 14; //cursor start position for dispRight
+			cursorPos = 14; // cursor start position for dispRight sensor
 			LcdDisplay_State = DisplayRight;
 			break;
-		case DisplayRight:	//cursor start position for dispAngleImg
-			cursorPos = 17;
+		case DisplayRight:
+			cursorPos = 17;	// cursor start position for dispAngleImg
 			LcdDisplay_State = DisplayAngle;
 			break;
 		case DisplayAngle:
-			cursorPos = 23;
+			cursorPos = 23;	// cursor start position for dispAction string
 			LcdDisplay_State = DisplayAction;
 			break;
 		case DisplayAction:
 			cursorPos = 1;
+			// if the system is on, display the sun, but if the system is
+			// off, display the moon
 			if(!systemOff || OverrideOn){
 				LcdDisplay_State = DisplaySun;
 			}
@@ -567,11 +625,11 @@ void LcdDisplay_TickFct(){
 			}
 			break;
 		case DisplaySun:
-			cursorPos = 1;
+			cursorPos = 1;	// cursor start position for dispLeft sensor
 			LcdDisplay_State = DisplayLeft;
 			break;
 		case DisplayMoon:
-			cursorPos = 1;
+			cursorPos = 1;	// cursor start position for dispLeft sensor
 			LcdDisplay_State = DisplayLeft;
 			break;
 	}//transitions
@@ -580,11 +638,6 @@ void LcdDisplay_TickFct(){
 	switch(LcdDisplay_State)
 	{
 		case LcdInit:
-			//build custom characters for use throughout program
-			//LCD_build(0,angleLcdPattern);
-			//LCD_build(1,sunLcdPattern);
-			//LCD_build(2,moonLcdPattern);
-			
 			LCD_ClearScreen();
 			
 			//initialize left		 ______________
@@ -614,16 +667,19 @@ void LcdDisplay_TickFct(){
 			//2 leading 0s needed   |00x           |
 			//						|______________|
 			if(lightL < 10){
-				LCD_WriteData(0 + '0');
+				//LCD_WriteData(0 + '0');
+				LCD_WriteData('_');
 				cursorPos++;
-				LCD_WriteData(0 + '0');
+				//LCD_WriteData(0 + '0');
+				LCD_WriteData('_');
 				cursorPos++;
 			}
 			//						 ______________
 			//1 leading 0s needed   |0xx           |
 			//						|______________|
 			else if ( lightL >= 10 && lightL < 100){
-				LCD_WriteData(0 + '0');
+				//LCD_WriteData(0 + '0');
+				LCD_WriteData('_');
 				cursorPos++;
 			}
 			
@@ -639,26 +695,32 @@ void LcdDisplay_TickFct(){
 				LCD_WriteData(int_buffer[i]);
 				cursorPos++;
 			}
+			LCD_WriteData('[');
 			break;
 		case DisplayRight:
 			lightR = RIGHT_LIGHT_SENSOR;
 			itoa(lightR, int_buffer,10);
+			LCD_Cursor(cursorPos-1);
+			LCD_WriteData(']');
 			LCD_Cursor(cursorPos);
 			
 			//						 ______________
 			//2 leading 0s needed   |           00x|
 			//						|______________|
 			if(lightR < 10){
-				LCD_WriteData(0 + '0');
+				//LCD_WriteData(0 + '0');
+				LCD_WriteData('_');
 				cursorPos++;
-				LCD_WriteData(0 + '0');
+				//LCD_WriteData(0 + '0');
+				LCD_WriteData('_');
 				cursorPos++;
 			}
 			//						 ______________
 			//1 leading 0s needed   |           0xx|
 			//						|______________|
 			else if ( lightR >= 10 && lightR < 100){
-				LCD_WriteData(0 + '0');
+				//LCD_WriteData(0 + '0');
+				LCD_WriteData('_');
 				cursorPos++;
 			}
 			
@@ -686,16 +748,19 @@ void LcdDisplay_TickFct(){
 			//2 leading 0s needed   |              |
 			//						|a00x__________|
 			if(servoAngle < 10){
-				LCD_WriteData(0 + '0');
+				//LCD_WriteData(0 + '0');
+				LCD_WriteData('_');
 				cursorPos++;
-				LCD_WriteData(0 + '0');
+				//LCD_WriteData(0 + '0');
+				LCD_WriteData('_');
 				cursorPos++;
 			}
 			//						 ______________
 			//1 leading 0s needed   |              |
 			//						|a0xx__________|
 			else if ( servoAngle >= 10 && servoAngle < 100){
-				LCD_WriteData(0 + '0');
+				//LCD_WriteData(0 + '0');
+				LCD_WriteData('_');
 				cursorPos++;
 			}
 			
@@ -720,7 +785,8 @@ void LcdDisplay_TickFct(){
 			}
 			break;
 		case DisplaySun:
-			//determine where the sun symbol should be based on angle
+			// determine where the sun symbol should be displayed based on angle
+			// of the servo
 			if((servoAngle < 23) && (servoAngle >= 0)){
 				sunImgPos = RPos4;
 			}
@@ -746,6 +812,10 @@ void LcdDisplay_TickFct(){
 				sunImgPos = LPos3;
 			}
 			
+			// keep writing a string one letter at a time to
+			// overwrite the middle of the top row on the lcd.
+			// Except we keep redrawing the sun at its new
+			// position
 			for(unsigned char i = 5; i<=12; i++){
 				LCD_Cursor(i);
 				if(sunImgPos == i){
@@ -755,9 +825,12 @@ void LcdDisplay_TickFct(){
 					LCD_WriteData(' ');
 				}
 			}
-			
 			break;
 		case DisplayMoon:
+			// keep writing a string one letter at a time to
+			// overwrite the middle of the top row on the lcd.
+			// Except we keep redrawing the moon at the center
+			// every time
 			for(unsigned char i = 5; i<=12; i++){
 				LCD_Cursor(i);
 				if(MiddlePos == i){
@@ -787,8 +860,8 @@ int main(void)
 	TimerSet(50);
 	TimerOn();
 	
-	LCD_init();//initialize lcd display for use
-	//build custom characters for use throughout program
+	// Initialize LCD and store custom characters
+	LCD_init();
 	LCD_build(0,angleLcdPattern);
 	LCD_build(1,sunLcdPattern);
 	LCD_build(2,moonLcdPattern);
@@ -805,13 +878,17 @@ int main(void)
 	//main loop
 	while(1)
 	{
+		// update main inputs to system
 		pirSensor = GetBit(PINB,1); //get reading from pir sensor
 		overrideBtn = GetBit(~PINB,2); //get joystick button press
 		
+		// tick each state machine
 		HumanDetect_TickFct();
 		LightSeek_TickFct();
 		ServoControl_TickFct();
 		LcdDisplay_TickFct();
+		
+		// wait for timer interrupt to call
 		while(!TimerFlag);
 		TimerFlag = 0;
 	}
