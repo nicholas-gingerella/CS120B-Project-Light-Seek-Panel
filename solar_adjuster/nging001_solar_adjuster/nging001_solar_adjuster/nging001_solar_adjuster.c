@@ -864,9 +864,9 @@ int main(void)
 	// TODO: setup inputs and outputs for override
 	// Joystick taken care of by ADC A2, just need
 	// output for manual override led
-	DDRB = 1 << 6 | 1 << 3 | 1 << 0; PORTB = 0xB6; //1011 0110
-	DDRD = 0xFF;
-	DDRC = 0x03;
+	DDRB = 0X49;	PORTB = 0xB6;	//DDRB:0100 1001  PORTB:1011 0110
+	DDRD = 0xFF;	PORTD = 0x00;	//DDRD:1111 1111  PORTD:0000 0000
+	DDRC = 0x03;	PORTC = 0xFC;	//DDRC:0000 0011  PORTC:1111 1100
 	
 	//set and turn on system timer
 	TimerSet(50);
